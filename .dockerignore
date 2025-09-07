@@ -1,0 +1,42 @@
+# Rust build artifacts
+target/
+**/*.rs.bk
+Cargo.lock
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# Documentation
+README.md
+docs/
+
+# CI/CD
+.github/
+
+# Test files
+tests/
+examples/
+benches/
+
+# Local development
+.env
+.env.local
