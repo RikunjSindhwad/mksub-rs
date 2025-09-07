@@ -142,7 +142,19 @@ fn spawn_writer_thread(
         let mut bytes_written = 0usize;
         let flush_threshold = buffer_mb * 1024 * 1024;
         
-        while let Ok(line) = receiver.recv() {
+        loop {
+            // Check shutdown flag first
+            if shutdown_flag.load(Ordering::Relaxed) {
+                break;
+            }
+            
+            // Use timeout to avoid blocking indefinitely
+            let line = match receiver.recv_timeout(std::time::Duration::from_millis(100)) {
+                Ok(line) => line,
+                Err(crossbeam_channel::RecvTimeoutError::Timeout) => continue,
+                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+            };
+            
             // Write to file if output_file is specified
             if output_file.is_some() {
                 if let Err(e) = writeln!(writer, "{}", line) {
@@ -187,10 +199,6 @@ fn spawn_writer_thread(
                     break;
                 }
                 bytes_written = 0;
-            }
-
-            if shutdown_flag.load(Ordering::Relaxed) {
-                break;
             }
         }
 

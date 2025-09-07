@@ -98,14 +98,28 @@ fn main() -> Result<()> {
         std::process::exit(1);
     }
 
-    // Set up graceful shutdown
+    // Set up graceful shutdown with double Ctrl+C handling
     let shutdown_flag = Arc::new(AtomicBool::new(false));
     let shutdown_clone = shutdown_flag.clone();
+    let force_exit = Arc::new(AtomicBool::new(false));
+    let force_exit_clone = force_exit.clone();
     
     ctrlc::set_handler(move || {
-        eprintln!("\n{} {}", "⚡".yellow(), "Received interrupt signal, shutting down gracefully...".yellow());
-        shutdown_clone.store(true, Ordering::Relaxed);
-        SHUTDOWN.store(true, Ordering::Relaxed);
+        if shutdown_clone.load(Ordering::Relaxed) {
+            // Second Ctrl+C - force exit immediately
+            eprintln!("\n{} {}", "💀".red(), "Force exit! Terminating immediately...".red().bold());
+            force_exit_clone.store(true, Ordering::Relaxed);
+            std::process::exit(130); // Standard exit code for Ctrl+C
+        } else {
+            // First Ctrl+C - graceful shutdown
+            eprintln!("\n{} {} {}", 
+                "⚡".yellow(), 
+                "Received interrupt signal, shutting down gracefully...".yellow(),
+                "(Press Ctrl+C again to force exit)".bright_black()
+            );
+            shutdown_clone.store(true, Ordering::Relaxed);
+            SHUTDOWN.store(true, Ordering::Relaxed);
+        }
     })
     .context("Error setting Ctrl-C handler")?;
 
@@ -206,7 +220,45 @@ fn main() -> Result<()> {
         eprintln!("{} Waiting for writers to finish...", "⏳".yellow());
     }
     
-    for handle in writer_handles {
+    // Wait for writers with timeout and shutdown checking
+    use std::time::{Duration, Instant};
+    let start_time = Instant::now();
+    let mut remaining_handles = writer_handles;
+    
+    while !remaining_handles.is_empty() {
+        // Check if we should force exit
+        if SHUTDOWN.load(Ordering::Relaxed) && start_time.elapsed() > Duration::from_secs(3) {
+            eprintln!("{} {} {} writers after 3 seconds of graceful shutdown", 
+                "⚠️".yellow(), 
+                "Force terminating".yellow().bold(),
+                remaining_handles.len()
+            );
+            break;
+        }
+        
+        // Try to join completed handles
+        remaining_handles.retain(|handle| !handle.is_finished());
+        
+        if remaining_handles.is_empty() {
+            break;
+        }
+        
+        // Small sleep to avoid busy waiting
+        std::thread::sleep(Duration::from_millis(50));
+        
+        // Timeout after 10 seconds total
+        if start_time.elapsed() > Duration::from_secs(10) {
+            eprintln!("{} {} {} writers after 10 seconds - force terminating", 
+                "⏰".red(), 
+                "Timeout! Force terminating".red().bold(),
+                remaining_handles.len()
+            );
+            break;
+        }
+    }
+    
+    // Join any remaining handles quickly
+    for handle in remaining_handles {
         if let Err(e) = handle.join() {
             eprintln!("{} Writer thread error: {:?}", "❌".red(), e);
         }
