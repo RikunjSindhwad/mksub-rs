@@ -158,10 +158,13 @@ jobs:
       with:
         path: artifacts
 
+    - name: Display artifact structure
+      run: find artifacts -type f -name "*.tar.gz" -o -name "*.zip"
+
     - name: Create Release
       uses: softprops/action-gh-release@v2
       with:
-        files: artifacts/*/*.{tar.gz,zip}
+        files: artifacts/*/*.tar.gz,artifacts/*/*.zip
         generate_release_notes: true
         draft: false
         prerelease: ${{ contains(github.ref, '-') }}
